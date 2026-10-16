@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { useI18n, useScopedT } from "@/contexts/I18nContext";
 import { useShortcuts } from "@/contexts/ShortcutsContext";
-import { INITIAL_EDITOR_STATE, useEditorHistory } from "@/hooks/useEditorHistory";
+import { type EditorState, INITIAL_EDITOR_STATE, useEditorHistory } from "@/hooks/useEditorHistory";
 import { type Locale } from "@/i18n/config";
 import { getAvailableLocales, getLocaleName } from "@/i18n/loader";
 import {
@@ -83,6 +83,7 @@ import {
 	fromFileUrl,
 	hasProjectUnsavedChanges,
 	normalizeProjectEditor,
+	type ProjectEditorState,
 	resolveProjectMedia,
 	toFileUrl,
 	validateProjectData,
@@ -113,6 +114,7 @@ import {
 	type ZoomRegion,
 } from "./types";
 import { UnsavedChangesDialog } from "./UnsavedChangesDialog";
+import { type McpBridgeHandlers, useMcpBridge } from "./useMcpBridge";
 import VideoPlayback, { VideoPlaybackRef } from "./VideoPlayback";
 
 /** Single Sonner slot so auto-caption phases update in place instead of stacking. */
@@ -175,6 +177,33 @@ function buildSaveDiagnosticMessage(formatLabel: "GIF" | "Video", reason?: strin
 }
 
 const CAPTION_WORD_CHOICES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
+
+/** The undoable part of a normalized project editor state. */
+function toUndoableEditorState(editor: ProjectEditorState): EditorState {
+	return {
+		wallpaper: editor.wallpaper,
+		shadowIntensity: editor.shadowIntensity,
+		showBlur: editor.showBlur,
+		showTrimWaveform: editor.showTrimWaveform,
+		motionBlurAmount: editor.motionBlurAmount,
+		borderRadius: editor.borderRadius,
+		padding: editor.padding,
+		cropRegion: editor.cropRegion,
+		zoomRegions: editor.zoomRegions,
+		autoZoomEnabled: editor.autoZoomEnabled,
+		autoFocusAll: editor.autoFocusAll,
+		trimRegions: editor.trimRegions,
+		speedRegions: editor.speedRegions,
+		annotationRegions: editor.annotationRegions,
+		aspectRatio: editor.aspectRatio,
+		webcamLayoutPreset: editor.webcamLayoutPreset,
+		webcamMaskShape: editor.webcamMaskShape,
+		webcamMirrored: editor.webcamMirrored,
+		webcamReactiveZoom: editor.webcamReactiveZoom,
+		webcamSizePreset: editor.webcamSizePreset,
+		webcamPosition: editor.webcamPosition,
+	};
+}
 
 export default function VideoEditor() {
 	const {
@@ -398,29 +427,7 @@ export default function VideoEditor() {
 			// over it (even if it has zero zooms because the user deleted them all).
 			autoProcessedSourceRef.current = sourcePath;
 
-			pushState({
-				wallpaper: normalizedEditor.wallpaper,
-				shadowIntensity: normalizedEditor.shadowIntensity,
-				showBlur: normalizedEditor.showBlur,
-				showTrimWaveform: normalizedEditor.showTrimWaveform,
-				motionBlurAmount: normalizedEditor.motionBlurAmount,
-				borderRadius: normalizedEditor.borderRadius,
-				padding: normalizedEditor.padding,
-				cropRegion: normalizedEditor.cropRegion,
-				zoomRegions: normalizedEditor.zoomRegions,
-				autoZoomEnabled: normalizedEditor.autoZoomEnabled,
-				autoFocusAll: normalizedEditor.autoFocusAll,
-				trimRegions: normalizedEditor.trimRegions,
-				speedRegions: normalizedEditor.speedRegions,
-				annotationRegions: normalizedEditor.annotationRegions,
-				aspectRatio: normalizedEditor.aspectRatio,
-				webcamLayoutPreset: normalizedEditor.webcamLayoutPreset,
-				webcamMaskShape: normalizedEditor.webcamMaskShape,
-				webcamMirrored: normalizedEditor.webcamMirrored,
-				webcamReactiveZoom: normalizedEditor.webcamReactiveZoom,
-				webcamSizePreset: normalizedEditor.webcamSizePreset,
-				webcamPosition: normalizedEditor.webcamPosition,
-			});
+			pushState(toUndoableEditorState(normalizedEditor));
 			setExportQuality(normalizedEditor.exportQuality);
 			setExportFormat(normalizedEditor.exportFormat);
 			setGifFrameRate(normalizedEditor.gifFrameRate);
@@ -818,6 +825,112 @@ export default function VideoEditor() {
 		}
 		await doLoadProject();
 	}, [hasUnsavedChanges, doLoadProject]);
+
+	// In-app MCP server: edits arrive from the main process and go through pushState,
+	// so each one is a single Cmd+Z step. The ref is refreshed every render.
+	const mcpHandlersRef = useRef<McpBridgeHandlers | null>(null);
+	mcpHandlersRef.current = {
+		getSnapshot: () => {
+			const video = videoPlaybackRef.current?.video;
+			return {
+				projectPath: currentProjectPath,
+				media: currentProjectMedia,
+				editor: {
+					...editorState,
+					exportQuality,
+					exportFormat,
+					gifFrameRate,
+					gifLoop,
+					gifSizePreset,
+					cursorTheme,
+				},
+				durationMs: Math.round(duration * 1000),
+				currentTimeMs: Math.round(currentTime * 1000),
+				hasUnsavedChanges,
+				video: video?.videoWidth ? { width: video.videoWidth, height: video.videoHeight } : null,
+			};
+		},
+		applyEditor: (editor, label) => {
+			const normalized = normalizeProjectEditor(editor);
+			pushState(toUndoableEditorState(normalized));
+			setExportQuality(normalized.exportQuality);
+			setExportFormat(normalized.exportFormat);
+			setGifFrameRate(normalized.gifFrameRate);
+			setGifLoop(normalized.gifLoop);
+			setGifSizePreset(normalized.gifSizePreset);
+			setCursorTheme(normalized.cursorTheme);
+			const bump = (ref: { current: number }, prefix: string, ids: string[]) => {
+				ref.current = Math.max(ref.current, deriveNextId(prefix, ids));
+			};
+			bump(
+				nextZoomIdRef,
+				"zoom",
+				normalized.zoomRegions.map((r) => r.id),
+			);
+			bump(
+				nextTrimIdRef,
+				"trim",
+				normalized.trimRegions.map((r) => r.id),
+			);
+			bump(
+				nextSpeedIdRef,
+				"speed",
+				normalized.speedRegions.map((r) => r.id),
+			);
+			bump(
+				nextAnnotationIdRef,
+				"annotation",
+				normalized.annotationRegions.map((r) => r.id),
+			);
+			nextAnnotationZIndexRef.current = Math.max(
+				nextAnnotationZIndexRef.current,
+				normalized.annotationRegions.reduce((max, r) => Math.max(max, r.zIndex), 0) + 1,
+			);
+			toast(`Claude ${label}`, { description: "Press Cmd+Z to undo" });
+		},
+		openProject: async (path, force) => {
+			if (hasUnsavedChanges && !force) {
+				throw new Error(
+					"The editor has unsaved changes. Ask the user to save first, or pass discard_unsaved: true.",
+				);
+			}
+			const result = await nativeBridgeClient.project.loadProjectFileFromPath(path);
+			if (!result.success) throw new Error(result.message || "Failed to load project");
+			if (!(await applyLoadedProject(result.project, result.path ?? path))) {
+				throw new Error("Not a valid OpenScreen project");
+			}
+		},
+		save: async () => ({ saved: await saveProject(false), path: currentProjectPath }),
+		undo,
+		redo,
+		seek: async (timeMs) => {
+			const video = videoPlaybackRef.current?.video;
+			if (!video) throw new Error("No video is loaded");
+			videoPlaybackRef.current?.pause();
+			const time = Math.max(0, Math.min(timeMs / 1000, video.duration || timeMs / 1000));
+			if (Math.abs(video.currentTime - time) < 0.01) return;
+			await new Promise<void>((resolve) => {
+				const done = () => {
+					video.removeEventListener("seeked", done);
+					resolve();
+				};
+				video.addEventListener("seeked", done);
+				setTimeout(done, 3000);
+				handleSeek(time);
+			});
+		},
+		previewRect: async (timeMs) => {
+			if (timeMs !== undefined) await mcpHandlersRef.current?.seek(timeMs);
+			// Let React and the Pixi ticker draw the new frame before the main process captures it.
+			await new Promise((resolve) => setTimeout(resolve, 250));
+			await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+			const element = document.querySelector("[data-mcp-preview]");
+			if (!element) throw new Error("The preview isn't visible");
+			const rect = element.getBoundingClientRect();
+			return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+		},
+	};
+	useMcpBridge(mcpHandlersRef, !loading);
 
 	const handleLoadProjectConfirmSave = useCallback(async () => {
 		setConfirmDialogVariant(null);
@@ -2572,6 +2685,7 @@ export default function VideoEditor() {
 										{/* Video preview */}
 										<div className="w-full min-h-0 flex justify-center items-center flex-auto px-4 pt-4">
 											<div
+												data-mcp-preview
 												className="relative flex justify-center items-center w-auto h-full max-w-full box-border"
 												style={{
 													aspectRatio:

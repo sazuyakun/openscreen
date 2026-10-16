@@ -168,6 +168,23 @@ describe("projectPersistence media compatibility", () => {
 			}).webcamPosition,
 		).toBeNull();
 	});
+
+	it("keeps a zoom's custom scale, clamped to the slider range", () => {
+		const zoom = (customScale?: number) => ({
+			id: "zoom-1",
+			startMs: 0,
+			endMs: 1000,
+			depth: 3 as const,
+			focus: { cx: 0.5, cy: 0.5 },
+			...(customScale === undefined ? {} : { customScale }),
+		});
+		const [kept, high, missing] = normalizeProjectEditor({
+			zoomRegions: [zoom(2.555), { ...zoom(9), id: "zoom-2" }, { ...zoom(), id: "zoom-3" }],
+		}).zoomRegions;
+		expect(kept.customScale).toBe(2.56);
+		expect(high.customScale).toBe(5);
+		expect(missing).not.toHaveProperty("customScale");
+	});
 });
 
 it("creates stable snapshots for identical project state", () => {

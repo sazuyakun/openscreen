@@ -49,6 +49,7 @@ Screen Studio is an awesome product and this is definitely not a 1:1 clone. If y
 - Customizable keyboard shortcuts.
 - Export to MP4 or GIF in multiple aspect ratios and resolutions.
 - Languages supported: Arabic, English, Spanish, French, Italian, Japanese, Korean, Portuguese (Brazil), Russian, Turkish, Vietnamese, Simplified Chinese, and Traditional Chinese.
+- **Edit with Claude (this fork):** a built-in MCP server lets Claude edit the project open in the editor while you work. It can zoom on clicks, cut dead air, change speed, add labels, arrows and blur, and restyle the video. Each change appears instantly and undoes with Cmd+Z. See [docs/mcp.md](docs/mcp.md).
 
 
 ## Installation

@@ -285,6 +285,11 @@ interface Window {
 		onRequestSaveBeforeClose: (callback: () => Promise<boolean> | boolean) => () => void;
 		onRequestCloseConfirm: (callback: () => void) => () => void;
 		sendCloseConfirmResponse: (choice: "save" | "discard" | "cancel") => void;
+		onMcpBridgeRequest: (
+			callback: (envelope: import("../src/lib/mcpBridge").McpBridgeEnvelope) => void,
+		) => () => void;
+		sendMcpBridgeResponse: (response: import("../src/lib/mcpBridge").McpBridgeResponse) => void;
+		notifyMcpBridgeReady: () => void;
 		setLocale: (locale: string) => Promise<void>;
 		saveDiagnostic: (payload: {
 			error: string;
