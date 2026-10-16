@@ -33,9 +33,11 @@ import {
 	MAX_BLUR_BLOCK_SIZE,
 	MAX_BLUR_INTENSITY,
 	MAX_PLAYBACK_SPEED,
+	MAX_ZOOM_SCALE,
 	MIN_BLUR_BLOCK_SIZE,
 	MIN_BLUR_INTENSITY,
 	MIN_PLAYBACK_SPEED,
+	MIN_ZOOM_SCALE,
 	type SpeedRegion,
 	type TrimRegion,
 	type WebcamLayoutPreset,
@@ -267,6 +269,14 @@ export function normalizeProjectEditor(editor: Partial<ProjectEditorState>): Pro
 						focusMode: region.focusMode === "auto" ? "auto" : "manual",
 						source: region.source === "auto" ? "auto" : "manual",
 						...(validPreset ? { rotationPreset: validPreset } : {}),
+						// Keep the zoom slider's value; dropping it reset zooms to their depth preset on reload.
+						...(isFiniteNumber(region.customScale)
+							? {
+									customScale:
+										Math.round(clamp(region.customScale, MIN_ZOOM_SCALE, MAX_ZOOM_SCALE) * 100) /
+										100,
+								}
+							: {}),
 					};
 				})
 		: [];

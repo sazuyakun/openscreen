@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
 	app,
 	BrowserWindow,
+	clipboard,
 	ipcMain,
 	Menu,
 	nativeImage,
@@ -19,6 +20,7 @@ import {
 } from "./globalShortcut";
 import { mainT, setMainLocale } from "./i18n";
 import { getSelectedDesktopSource, registerIpcHandlers } from "./ipc/handlers";
+import { type McpController, startMcpController } from "./mcp";
 import {
 	createCountdownOverlayWindow,
 	createEditorWindow,
@@ -84,6 +86,7 @@ let sourceSelectorWindow: BrowserWindow | null = null;
 let countdownOverlayWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let selectedSourceName = "";
+let mcpController: McpController | null = null;
 const isMac = process.platform === "darwin";
 const trayIconSize = isMac ? 16 : 24;
 
@@ -251,6 +254,35 @@ function setupApplicationMenu() {
 				{
 					role: "togglefullscreen",
 					label: mainT("common", "actions.toggleFullScreen") || "Toggle Full Screen",
+				},
+			],
+		},
+		{
+			label: "MCP",
+			submenu: [
+				{
+					label: !mcpController
+						? "MCP server: starting…"
+						: mcpController.running
+							? `MCP server: running at ${mcpController.url}`
+							: mcpController.error
+								? `MCP server: ${mcpController.error}`
+								: "MCP server: off",
+					enabled: false,
+				},
+				{
+					label: "Enable MCP Server",
+					type: "checkbox",
+					checked: mcpController?.enabled ?? true,
+					click: (item) => void mcpController?.setEnabled(item.checked),
+				},
+				{ type: "separator" },
+				{
+					label: "Copy Claude Code Setup Command",
+					enabled: Boolean(mcpController),
+					click: () => {
+						if (mcpController) clipboard.writeText(mcpController.setupCommand());
+					},
 				},
 			],
 		},
@@ -560,6 +592,16 @@ app.whenReady().then(async () => {
 	);
 
 	await loadAndRegisterGlobalShortcut(showMainWindow);
+
+	mcpController = startMcpController({
+		userDataDir: app.getPath("userData"),
+		recordingsDir: RECORDINGS_DIR,
+		getEditorWindow: () =>
+			mainWindow && !mainWindow.isDestroyed() && isEditorWindow(mainWindow) ? mainWindow : null,
+		openEditorWindow: createEditorWindowWrapper,
+		onStatusChange: setupApplicationMenu,
+	});
+	setupApplicationMenu();
 
 	createWindow();
 });

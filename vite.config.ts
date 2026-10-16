@@ -17,6 +17,8 @@ export default defineConfig({
 				},
 				vite: {
 					build: {},
+					// The in-app MCP server reuses the editor's project code, which imports via "@/".
+					resolve: { alias: { "@": path.resolve(__dirname, "src") } },
 				},
 			},
 			preload: {

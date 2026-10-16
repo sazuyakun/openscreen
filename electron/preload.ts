@@ -1,4 +1,11 @@
 import { contextBridge, ipcRenderer, webUtils } from "electron";
+import {
+	MCP_BRIDGE_READY_CHANNEL,
+	MCP_BRIDGE_REQUEST_CHANNEL,
+	MCP_BRIDGE_RESPONSE_CHANNEL,
+	type McpBridgeEnvelope,
+	type McpBridgeResponse,
+} from "../src/lib/mcpBridge";
 import type { NativeMacRecordingRequest } from "../src/lib/nativeMacRecording";
 import type { NativeWindowsRecordingRequest } from "../src/lib/nativeWindowsRecording";
 import type { RecordingSession, StoreRecordedSessionInput } from "../src/lib/recordingSession";
@@ -279,5 +286,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
 	},
 	sendCloseConfirmResponse: (choice: "save" | "discard" | "cancel") => {
 		ipcRenderer.send("close-confirm-response", choice);
+	},
+	onMcpBridgeRequest: (callback: (envelope: McpBridgeEnvelope) => void) => {
+		const listener = (_event: unknown, envelope: McpBridgeEnvelope) => callback(envelope);
+		ipcRenderer.on(MCP_BRIDGE_REQUEST_CHANNEL, listener);
+		return () => ipcRenderer.removeListener(MCP_BRIDGE_REQUEST_CHANNEL, listener);
+	},
+	sendMcpBridgeResponse: (response: McpBridgeResponse) => {
+		ipcRenderer.send(MCP_BRIDGE_RESPONSE_CHANNEL, response);
+	},
+	notifyMcpBridgeReady: () => {
+		ipcRenderer.send(MCP_BRIDGE_READY_CHANNEL);
 	},
 });
